@@ -1,8 +1,8 @@
 [package]
-name = "my-project"
+name = "Twisted"
 version = "0.1.0"
-authors = ["runner"]
-edition = "2021"
+authors = ["Radiiplus"]
+edition = "2023"
 
 [dependencies]
 openssl = "0.10.60"
