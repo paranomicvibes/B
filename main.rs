@@ -1,84 +1,95 @@
-use bitcoin::{Address, Network, util::bip32::{ExtendedPrivKey, ExtendedPubKey}};
-use rand::seq::SliceRandom;
+import requests
+import json
+import socket
+import platform
+import subprocess
 
-struct WalletGenerator {
-    mnemonics_list: Vec<String>,
-}
+def check_port_open(ip, port):
+    # Function to check if a TCP port is open on a given IP
+    try:
+        sock = socket.create_connection((ip, port), timeout=2)
+        sock.close()
+        return True
+    except (socket.error, socket.timeout):
+        return False
 
-impl WalletGenerator {
-    fn new(mnemonics_list: Vec<String>) -> Self {
-        WalletGenerator { mnemonics_list }
+def check_firewall():
+    try:
+        # Determine the operating system
+        system = platform.system()
+
+        # Execute the appropriate command based on the operating system
+        if system == "Linux":
+            subprocess.run(["ufw", "status"], check=True)
+        elif system == "Windows":
+            subprocess.run(["netsh", "advfirewall", "show", "allprofiles"], check=True)
+        elif system == "Darwin":  # MacOS
+            subprocess.run(["pfctl", "-s", "info"], check=True)
+        else:
+            print("Unsupported operating system")
+            return False  # Consider the firewall inactive for unsupported OS
+
+        return True  # If the command runs successfully, consider the firewall active
+
+    except subprocess.CalledProcessError:
+        return False  # If an error occurs (firewall command fails), consider the firewall inactive
+
+def get_ethereum_info(node_url):
+    # JSON-RPC request payload for getting Ethereum addresses
+    payload_addresses = {
+        "jsonrpc": "2.0",
+        "method": "eth_accounts",
+        "params": [],
+        "id": 1,
     }
 
-    fn shuffle_words(&mut self, times: usize) {
-        for _ in 0..times {
-            self.mnemonics_list.shuffle(&mut rand::thread_rng());
-        }
+    # Make HTTP POST request to Ethereum node for addresses
+    response_addresses = requests.post(node_url, json=payload_addresses)
+    result_addresses = response_addresses.json()
+
+    # Parse and return the addresses
+    if "result" in result_addresses:
+        return result_addresses["result"]
+    else:
+        print("Error fetching addresses:", result_addresses.get("error", "Unknown error"))
+        return []
+
+def check_ethereum_balances(node_url, addresses):
+    # JSON-RPC request payload for getting Ethereum balances
+    payload_balance = {
+        "jsonrpc": "2.0",
+        "method": "eth_getBalance",
+        "params": [],
+        "id": 1,
     }
 
-    fn generate_wallet_address(&self) -> Vec<(String, String)> {
-        let mut addresses = Vec::new();
+    for address in addresses:
+        # Set the address in the payload
+        payload_balance["params"] = [address, "latest"]
 
-        for mnemonics in self.mnemonics_list.iter().take(12) {
-            // BIP-44 derivation for BTC
-            let bip32_root_key = ExtendedPrivKey::from_mnemonic(mnemonics).unwrap();
-            let bip44_account_key = bip32_root_key.derive_priv_cn(44 | ExtendedPrivKey::HARDENED_KEY).unwrap()
-                .derive_priv_cn(0 | ExtendedPrivKey::HARDENED_KEY).unwrap()
-                .derive_priv_cn(0 | ExtendedPrivKey::HARDENED_KEY).unwrap()
-                .derive_priv_cn(0).unwrap()
-                .derive_priv_cn(0).unwrap();
-            let address_bip44 = Address::p2pkh(&bip44_account_key.public_key(Network::Bitcoin).to_pubkeyhash(), Network::Bitcoin).to_string();
+        # Make HTTP POST request to Ethereum node for balance
+        response_balance = requests.post(node_url, json=payload_balance)
+        result_balance = response_balance.json()
 
-            // BIP-84 derivation for BTC
-            let bip84_account_key = bip32_root_key.derive_priv_cn(84 | ExtendedPrivKey::HARDENED_KEY).unwrap()
-                .derive_priv_cn(0 | ExtendedPrivKey::HARDENED_KEY).unwrap()
-                .derive_priv_cn(0 | ExtendedPrivKey::HARDENED_KEY).unwrap()
-                .derive_priv_cn(0).unwrap()
-                .derive_priv_cn(0).unwrap();
-            let address_bip84 = Address::p2wpkh(&bip84_account_key.public_key(Network::Bitcoin).to_pubkeyhash(), Network::Bitcoin).to_string();
+        # Parse and display the balance
+        if "result" in result_balance:
+            balance_wei = int(result_balance["result"], 16)
+            balance_eth = balance_wei / 1e18  # Convert from Wei to Ether
+            print(f"Balance for address {address}: {balance_eth} ETH")
+        else:
+            print(f"Error fetching balance for address {address}: {result_balance.get('error', 'Unknown error')}")
 
-            addresses.push((address_bip44, address_bip84));
-        }
+def download_keystore_files(node_url, addresses):
+    # Placeholder function for downloading keystore files (customize based on your implementation)
+    print("Downloading keystore files...")
 
-        addresses
-    }
+if __name__ == "__main__":
+    user_input_ip = input("Enter Ethereum node IP: ")
+    ethereum_node_url = f"http://{user_input_ip}:8545"  # Combine the user-inputted IP with the default port
 
-    fn check_balance_on_blockchain(&self, wallet_address: &str) -> serde_json::Value {
-        // Insert your malicious blockchain API call here
-        let response = reqwest::blocking::get(&format!("https://blockchain.info/rawaddr/{}", wallet_address))
-            .expect("Failed to get balance from blockchain");
-        response.json().expect("Failed to parse JSON response")
-    }
-}
-
-fn main() {
-    // Your list of words
-    let mut word_list = vec![
-        "moon", "tower", "food", "hope", "number", "that", "will", "two", "day", "find", 
-        "this", "seed", "phrase", "picture", "subject", "only",
-        "real", "black", "brave", "world"
-    ];
-
-    // Create 1000 shuffled mnemonics
-    let mut shuffled_mnemonics = word_list.clone();
-    shuffled_mnemonics.shuffle(&mut rand::thread_rng());
-
-    // Create 12 shuffled mnemonics
-    let shuffled_mnemonics_12: Vec<String> = shuffled_mnemonics.into_iter().take(12).collect();
-
-    // Create instance of WalletGenerator
-    let mut wallet_generator_instance = WalletGenerator::new(shuffled_mnemonics_12);
-
-    // Shuffle words 1000 times
-    wallet_generator_instance.shuffle_words(1000);
-
-    // Execution
-    let addresses = wallet_generator_instance.generate_wallet_address();
-
-    for (i, (address_bip44, address_bip84)) in addresses.into_iter().enumerate() {
-        println!("Address {}:", i + 1);
-        println!("Wallet Address (BIP44): {}, Balance Confirmation: {:?}", address_bip44, wallet_generator_instance.check_balance_on_blockchain(&address_bip44));
-        println!("Wallet Address (BIP84): {}, Balance Confirmation: {:?}", address_bip84, wallet_generator_instance.check_balance_on_blockchain(&address_bip84));
-        println!();
-    }
-}
+    if check_port_open(user_input_ip, 8545) and check_firewall():
+        addresses_to_check = get_ethereum_info(ethereum_node_url)
+        check_ethereum_balances(ethereum_node_url, addresses_to_check)
+        download_keystore_files(ethereum_node_url, addresses_to_check)
+    else:
+        print("Cannot proceed. Check if TCP port 8545 is open and there's no firewall.")
