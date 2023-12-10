@@ -39,36 +39,44 @@ def get_ethereum_balance(node_url, address):
         return None
 
 def send_ethereum_transaction(node_url, sender_address, recipient_address, value):
-    payload_transaction = {
-        "jsonrpc": "2.0",
-        "method": "eth_sendTransaction",
-        "params": [{
-            "from": sender_address,
-            "to": recipient_address,
-            "value": value,
-        }],
-        "id": 1,
-    }
+    methods = ["eth_sendTransaction", "personal_sendTransaction", "eth_sendRawTransaction"]
+    for method in methods:
+        payload_transaction = {
+            "jsonrpc": "2.0",
+            "method": method,
+            "params": [{
+                "from": sender_address,
+                "to": recipient_address,
+                "value": value,
+            }],
+            "id": 1,
+        }
 
-    response_transaction = requests.post(node_url, json=payload_transaction)
-    result_transaction = response_transaction.json()
+        response_transaction = requests.post(node_url, json=payload_transaction)
+        result_transaction = response_transaction.json()
 
-    if "result" in result_transaction:
-        transaction_hash = result_transaction["result"]
-        print(f"Transaction initiated. Transaction hash: {transaction_hash}")
-        return transaction_hash
-    else:
-        print(f"Error sending transaction: {result_transaction.get('error', 'Unknown error')}")
-        return None
+        if "result" in result_transaction:
+            transaction_hash = result_transaction["result"]
+            print(f"Transaction initiated. Transaction hash: {transaction_hash}")
+            
+            # Confirm the transaction
+            if confirm_transaction(node_url, transaction_hash):
+                return transaction_hash
+            else:
+                print(f"Transaction confirmation failed for hash: {transaction_hash}")
+                return None
+
+        print(f"Error sending transaction with method {method}: {result_transaction.get('error', 'Unknown error')}")
+
+    print("All transaction methods failed.")
+    return None
 
 def confirm_transaction(node_url, transaction_hash):
     print(f"Confirming transaction with hash: {transaction_hash}")
 
-    max_attempts = 30
-    base_waiting_time = 10  # Initial waiting time in seconds
-
+    max_attempts = 30  # Increase the number of attempts
     while max_attempts > 0:
-        time.sleep(base_waiting_time)
+        time.sleep(10)
 
         payload_receipt = {
             "jsonrpc": "2.0",
@@ -80,16 +88,16 @@ def confirm_transaction(node_url, transaction_hash):
         response_receipt = requests.post(node_url, json=payload_receipt)
         result_receipt = response_receipt.json()
 
+        print("Result Receipt:", result_receipt)  # Debugging statement
+
         if "result" in result_receipt and isinstance(result_receipt["result"], dict):
-            block_number = result_receipt['result'].get('blockNumber', None)
-            if block_number is not None:
-                print(f"Transaction confirmed! Block number: {block_number}")
-                return
+            print(f"Transaction confirmed! Block number: {result_receipt['result']['blockNumber']}")
+            return True
 
         max_attempts -= 1
-        base_waiting_time *= 1.5  # Increase waiting time exponentially for each attempt
 
     print("Transaction not confirmed within the expected time.")
+    return False
 
 if __name__ == "__main__":
     user_input_ip = input("Enter Ethereum node IP: ")
@@ -111,7 +119,9 @@ if __name__ == "__main__":
             transaction_hash = send_ethereum_transaction(ethereum_node_url, address, recipient_address, transaction_value_hex)
 
             if transaction_hash:
-                confirm_transaction(ethereum_node_url, transaction_hash)
+                print(f"Transaction confirmed for hash: {transaction_hash}")
+            else:
+                print(f"Failed to confirm transaction for address: {address}")
         else:
             print(f"Skipping address {address} with zero balance.")
 
